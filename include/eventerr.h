@@ -1,0 +1,9 @@
+#define NULL_POINTER_ERR  1<<0
+#define MEMORY_ERR        1<<1
+#define SIGMASK_ERR       1<<2
+#define MUTEX_INIT_ERR    1<<3
+#define MUTEX_DESTROY_ERR 1<<4
+#define MUTEX_LOCK_ERR    1<<5
+#define MUTEX_UNLOCK_ERR  1<<6
+#define THREAD_KILL_ERR   1<<7
+#define THREAD_NOT_ML_ERR 1<<8
