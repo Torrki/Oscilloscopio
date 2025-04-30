@@ -15,8 +15,20 @@
 			    </object>
 			  </child>
 			  <child>
-			    <object class="GtkButton" id="B">
-			      <property name="label">Pulsante</property>
+			    <object class="GtkGrid">
+			      <property name="margin-start">10</property>
+			      <property name="margin-top">10</property>
+			      <property name="column-spacing">5</property>
+			      <child>
+			        <object class="GtkToggleButton" id="SE">
+			          <property name="label">Start</property>
+			          <property name="width-request">80</property>
+			          <layout>
+			            <property name="column">0</property>
+			            <property name="row">0</property>
+			          </layout>
+			        </object>
+			      </child>
 			    </object>
 			  </child>
 			</object>

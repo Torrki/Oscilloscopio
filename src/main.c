@@ -16,12 +16,12 @@ int main(int argc, char* argv[]){
   
   //Ciclo di elaborazione degli eventi, termino con 2
   uint8_t lastCommand=0;
-  while(lastCommand != 2){
+  while(lastCommand != EXIT_ML){
     if(GetNSignals(MLC)){
       struct _EQueueElement *event=PopEventQueue(MLC);
       lastCommand=GetCommandElement(event);
       switch(lastCommand){
-      case 1:
+      case REQUEST_SERIAL:
         printf("Thread seriale\n");
       default:
         break;
@@ -32,6 +32,9 @@ int main(int argc, char* argv[]){
       waitNewEvent(MLC);
     }
   }
+  
+  pthread_join(*idThreads,NULL);
+  pthread_join(*(idThreads+1),NULL);
   PrintSignalQueue(MLC);
   mlContextDelete(MLC);
   return 0;
