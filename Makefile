@@ -23,8 +23,11 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 	mkdir -p $(OBJS_DIR)
 
+$(OBJS_DIR):
+	mkdir -p $(OBJS_DIR)
+
 # === Build final executable ===
-$(TARGET): $(BUILD_DIR) $(OBJS)
+$(TARGET): $(BUILD_DIR) $(OBJS_DIR) $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
 # === Compile each source file to object ===
