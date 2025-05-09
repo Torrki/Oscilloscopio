@@ -2,16 +2,17 @@
 <interface>
 	<object class="GtkWindow" id="MainWin">
 		<property name="default-height">500</property>
-		<property name="default-width">1401</property>
+		<property name="default-width">1400</property>
 		<property name="title">Oscilloscopio</property>
-		<property name="resizable">FALSE</property>
+		<property name="resizable">False</property>
 		<child>
 		  <object class="GtkBox">
 		    <property name="orientation">0</property>
 		    <child>
-			    <object class="GtkDrawingArea" id="DisplayArea">
-			      <property name="content-width">900</property>
-			      <property name="content-height">500></property>
+			    <object class="GtkGLArea" id="DisplayArea">
+			      <property name="width-request">900</property>
+			      <property name="height-request">500></property>
+			      <property name="visible">True</property>
 			    </object>
 			  </child>
 			  <child>

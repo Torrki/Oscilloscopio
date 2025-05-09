@@ -12,8 +12,8 @@ SRCS         := $(wildcard $(SRC_DIR)/*.c)
 OBJS         := $(patsubst $(SRC_DIR)/%.c, $(OBJS_DIR)/%.o, $(SRCS))
 
 # === Compiler and linker flags ===
-CFLAGS       := -Wall -O2 `pkg-config --cflags gtk4 gl` -I$(INCLUDE_DIR) -D_POSIX_C_SOURCE_=199309L
-LDFLAGS      := `pkg-config --libs gtk4 gl` -L$(LIB_DIR) -Wl,-rpath,$(LIB_DIR) -leml -lm
+CFLAGS       := -Wall -O2 `pkg-config --cflags gtk4 glesv2 egl` -I$(INCLUDE_DIR) -D_POSIX_C_SOURCE_=199309L
+LDFLAGS      := `pkg-config --libs gtk4 glesv2 egl` -L$(LIB_DIR) -Wl,-rpath,$(LIB_DIR) -leml -lm
 
 # === Default target ===
 all: $(TARGET)

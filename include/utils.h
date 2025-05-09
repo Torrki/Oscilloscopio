@@ -1,7 +1,7 @@
 //Struttura dati per il passaggio di argomenti
 struct argsThreadStruct{
   MlContext* mlc;
-  void* bufferSignals;
+  float* bufferSignals;
 };
 
 /*struct GUI_Context{
