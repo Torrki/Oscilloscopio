@@ -7,6 +7,5 @@ void* Thread_Seriale(void* args){
   
   //Codice per trovare tutte le seriali connesse
   //Attesa per la selezione della seriale
-  
   return NULL;
 }

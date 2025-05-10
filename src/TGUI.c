@@ -7,6 +7,9 @@
 #include <time.h>
 #include <utils.h>
 
+#define TOLL_DOUBLE 1e-4
+#define FPS 4.0
+
 //Oggetto che rappresenta il display
 struct _DisplayOscilloscopio{
   uint16_t width,height;
@@ -21,6 +24,7 @@ struct GUI_Context{
   DisplayOsc* osc;
   timer_t idTimerCamp;
   uint8_t draw;
+  double interval_GUI;
 }gctx;
 
 static gboolean render (GtkGLArea *area, GdkGLContext *context);
@@ -29,6 +33,7 @@ static void on_realize (GtkGLArea *area);
 void* Thread_GUI(void* args){
   gctx.argsT=(struct argsThreadStruct *)args;
   gctx.draw=0;
+  gctx.interval_GUI=1.0/FPS;
   
   //Creazione e start dell'applicazione
   GtkApplication *app=gtk_application_new("gtk.Oscilloscopio", G_APPLICATION_DEFAULT_FLAGS);
@@ -76,14 +81,18 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     gtk_button_set_label(GTK_BUTTON(self),"Stop");
     
     //Creo il buffer per la condivisione dei segnali e di GL
-    *bufferSignals=(void*)calloc(10,sizeof(float));
+    double dimBuffer=ceil((1.0/gctx.osc->dt)/FPS);
+    *bufferSignals=(float*)calloc((int)dimBuffer,sizeof(float));
     
-    //Creo e faccio partire il timer per il campionamento
+    //Creo e faccio partire il timer per il campionamento e per la GUI
     timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));
+    
     struct sigaction newAct={.sa_flags=0, .sa_handler=alrmHandler};
     sigaction(SIGALRM, &newAct, NULL);
-    long interval_ns=(long)(gctx.osc->dt*1e9);
+    
+    long interval_ns=(long)floor( (gctx.osc->dt*1e9) );    
     struct itimerspec ts={.it_interval={.tv_sec=0L, .tv_nsec=interval_ns}, .it_value={.tv_sec=0L, .tv_nsec=interval_ns}};
+    
     timer_settime(gctx.idTimerCamp, 0, &ts, NULL);
     gctx.draw=1;
   }else{
@@ -96,38 +105,58 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
 }
 
 void alrmHandler(int seg){
+  static double interval_GUI=0.0;
+  
   //Ad ogni SIGALARM mando un messaggio evento al mainloop per segnalare il thread della seriale
   signalMainLoop(gctx.argsT->mlc,REQUEST_SERIAL,NULL);
-  //Richiesta di disegno al display per aggiornare
-  gtk_widget_queue_draw(GTK_WIDGET(gctx.Display)); 
+
+  interval_GUI += gctx.osc->dt;
+  if(fabs(interval_GUI - gctx.interval_GUI) <= TOLL_DOUBLE ){
+    //Richiesta di disegno al display per aggiornare
+    gtk_gl_area_queue_render(gctx.Display);
+    interval_GUI=0.0;
+    signalMainLoop(gctx.argsT->mlc,RENDER_GL,NULL);
+  }
 }
 
-static gboolean render(GtkGLArea *area, GdkGLContext *context) {
-    glClearColor(0.0, 0.0, 0.0, 1.0);
-    glClear(GL_COLOR_BUFFER_BIT);
-    
+static gboolean render(GtkGLArea *area, GdkGLContext *context) {    
     //Se sono nella fase di disegno inizio a scrivere il buffer
+    glClear(GL_COLOR_BUFFER_BIT);
     if(gctx.draw){
-      float k=floorf(gctx.osc->T/gctx.osc->dt);
-      GLfloat tGL=-1.0+(gctx.osc->T/gctx.osc->T_Window)*2.0;
-      GLfloat d=gctx.argsT->bufferSignals[0];
-      glBufferSubData(GL_ARRAY_BUFFER,k*sizeof(GLfloat),sizeof(GLfloat),&d);
-      glBindBuffer(GL_ARRAY_BUFFER,1);
-      glBufferSubData(GL_ARRAY_BUFFER,k*sizeof(GLfloat),sizeof(GLfloat),&tGL);
-      glBindBuffer(GL_ARRAY_BUFFER,2);
-      
-      gctx.osc->T += gctx.osc->dt;
-      
+      double nElementi=ceil((1.0/gctx.osc->dt)/FPS);
+      double k=floor(gctx.osc->T/gctx.osc->dt);
+      double incremento_tempo=gctx.osc->dt*nElementi;
+      int k_size=(GLsizei)(k+nElementi);
+      g_print("%lf\n%lf\n%d\n",incremento_tempo,k,k_size);
+
       //Scrorrimento della finestra del display
-      if(gctx.osc->T > gctx.osc->T_Window){
-        float off_Copy= floor((gctx.osc->T_Window/gctx.osc->dt)*(2.0/3.0))*sizeof(GLfloat);
-        float size_Copy=ceil((gctx.osc->T_Window/gctx.osc->dt)*(1.0/3.0))*sizeof(GLfloat);
+      if(gctx.osc->T + incremento_tempo > gctx.osc->T_Window){
+        double endElement=floor(gctx.osc->T/gctx.osc->dt);
+        float off_Copy= floor(endElement*(2.0/3.0))*sizeof(GLfloat);
+        float size_Copy=ceil(endElement*(1.0/3.0))*sizeof(GLfloat);
         glCopyBufferSubData(GL_ARRAY_BUFFER,GL_ARRAY_BUFFER,off_Copy,0,size_Copy);
         
-        //Modifica del cursore
+        //Modifica del cursore e pulizia display
         gctx.osc->T = floor(gctx.osc->T_Window*(1.0/3.0));
+        k=floor(gctx.osc->T/gctx.osc->dt);
+        k_size=(GLsizei)(k+nElementi);
+        glFinish();
       }
-      glDrawArrays(GL_LINE_STRIP,0,k+1.0f);
+      
+      const unsigned nElementi_u=(unsigned)nElementi;
+      GLfloat tGL[nElementi_u];
+      for(unsigned j=0; j<nElementi_u; ++j){
+        tGL[j]=-1.0+((gctx.osc->T + ((double)j)*gctx.osc->dt)/gctx.osc->T_Window)*2.0;
+      }
+      
+      glBufferSubData(GL_ARRAY_BUFFER,k*sizeof(GLfloat),nElementi_u*sizeof(GLfloat),gctx.argsT->bufferSignals);
+      glBindBuffer(GL_ARRAY_BUFFER,1);
+      glBufferSubData(GL_ARRAY_BUFFER,k*sizeof(GLfloat),nElementi_u*sizeof(GLfloat),&tGL);
+      glBindBuffer(GL_ARRAY_BUFFER,2);
+      
+      glDrawArrays(GL_POINTS,0,k_size);
+      
+      gctx.osc->T += gctx.osc->dt*nElementi;
     }
     return TRUE;
 }
@@ -157,6 +186,7 @@ static void on_realize (GtkGLArea *area){
   "void main()\n"
   "{\n"
   "   gl_Position = vec4(t, signal, 0.0, 1.0);\n"
+  "   gl_PointSize = 2.0;\n"
   "}\n";
   glShaderSource(vertexShader,1,&vertexShaderSource,NULL);
   glCompileShader(vertexShader);
@@ -236,5 +266,7 @@ static void on_realize (GtkGLArea *area){
   glBufferData(GL_ARRAY_BUFFER,N*sizeof(GLfloat),NULL,GL_DYNAMIC_DRAW);
   glVertexAttribPointer(1,1,GL_FLOAT,GL_FALSE,0,NULL);
   glEnableVertexAttribArray(1);
+  
+  glClearColor(0.0, 0.0, 0.0, 1.0);
 }
 

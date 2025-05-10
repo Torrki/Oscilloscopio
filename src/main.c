@@ -22,6 +22,8 @@ int main(int argc, char* argv[]){
   //Ciclo di elaborazione degli eventi, termino con 2
   uint8_t lastCommand=0;
   float c=-0.9f;
+  static unsigned i=0;
+  
   while(lastCommand != EXIT_ML){
     if(GetNSignals(MLC)){
       struct _EQueueElement *event=PopEventQueue(MLC);
@@ -29,8 +31,12 @@ int main(int argc, char* argv[]){
       switch(lastCommand){
       case REQUEST_SERIAL:
         float *buffer=argsT->bufferSignals;
-        *buffer=c;
-        c += 1e-3;
+        buffer[i++]=c;
+        c += 2e-3;
+        break;
+      case RENDER_GL:
+        i=0;
+        break;
       default:
         break;
       }
