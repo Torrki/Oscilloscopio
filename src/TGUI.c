@@ -55,7 +55,7 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   gctx.osc->vLines=7;
   gctx.osc->gain=10.0;
   gctx.osc->dt=1e-2;
-  gctx.osc->T_Window=4.0;
+  gctx.osc->T_Window=3.0;
   gctx.osc->T=0.0;
   
   //Bind delle funzioni ai widget
@@ -108,17 +108,26 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context) {
     
     //Se sono nella fase di disegno inizio a scrivere il buffer
     if(gctx.draw){
-      /*float w=2.0*G_PI*1.0;
-      float d=0.25f*sinf(w*gctx.osc->T);*/
       float k=floorf(gctx.osc->T/gctx.osc->dt);
       GLfloat tGL=-1.0+(gctx.osc->T/gctx.osc->T_Window)*2.0;
       GLfloat d=gctx.argsT->bufferSignals[0];
-      GLfloat newData[3]={tGL,d,0.0f};
-      glBufferSubData(GL_ARRAY_BUFFER,k*3*sizeof(GLfloat),3*sizeof(GLfloat),newData);
-      
-      glDrawArrays(GL_LINE_STRIP,0,k);
+      glBufferSubData(GL_ARRAY_BUFFER,k*sizeof(GLfloat),sizeof(GLfloat),&d);
+      glBindBuffer(GL_ARRAY_BUFFER,1);
+      glBufferSubData(GL_ARRAY_BUFFER,k*sizeof(GLfloat),sizeof(GLfloat),&tGL);
+      glBindBuffer(GL_ARRAY_BUFFER,2);
       
       gctx.osc->T += gctx.osc->dt;
+      
+      //Scrorrimento della finestra del display
+      if(gctx.osc->T > gctx.osc->T_Window){
+        float off_Copy= floor((gctx.osc->T_Window/gctx.osc->dt)*(2.0/3.0))*sizeof(GLfloat);
+        float size_Copy=ceil((gctx.osc->T_Window/gctx.osc->dt)*(1.0/3.0))*sizeof(GLfloat);
+        glCopyBufferSubData(GL_ARRAY_BUFFER,GL_ARRAY_BUFFER,off_Copy,0,size_Copy);
+        
+        //Modifica del cursore
+        gctx.osc->T = floor(gctx.osc->T_Window*(1.0/3.0));
+      }
+      glDrawArrays(GL_LINE_STRIP,0,k+1.0f);
     }
     return TRUE;
 }
@@ -143,10 +152,11 @@ static void on_realize (GtkGLArea *area){
   
   const char *vertexShaderSource = 
   "#version 320 es\n"
-  "layout (location = 0) in vec3 aPos;\n"
+  "layout (location = 0) in float t;\n"
+  "layout (location = 1) in float signal;\n"
   "void main()\n"
   "{\n"
-  "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+  "   gl_Position = vec4(t, signal, 0.0, 1.0);\n"
   "}\n";
   glShaderSource(vertexShader,1,&vertexShaderSource,NULL);
   glCompileShader(vertexShader);
@@ -212,13 +222,19 @@ static void on_realize (GtkGLArea *area){
   //Rilascio delle risorse
   glReleaseShaderCompiler();
   
-  //Creazione del buffer degli shaders  
-  GLuint boVertex;
-  glGenBuffers(1,&boVertex);
-  glBindBuffer(GL_ARRAY_BUFFER,boVertex);
+  //Creazione dei buffer degli shaders, tempo e segnale
+  GLuint bobjs[2];
+  glGenBuffers(2,bobjs);
   unsigned N=floorf(gctx.osc->T_Window/gctx.osc->dt);
-  glBufferData(GL_ARRAY_BUFFER,N*3*sizeof(GLfloat),NULL,GL_DYNAMIC_DRAW);
-  glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,0,NULL);
+  
+  glBindBuffer(GL_ARRAY_BUFFER,bobjs[0]);
+  glBufferData(GL_ARRAY_BUFFER,N*sizeof(GLfloat),NULL,GL_DYNAMIC_DRAW);
+  glVertexAttribPointer(0,1,GL_FLOAT,GL_FALSE,0,NULL);
   glEnableVertexAttribArray(0);
+  
+  glBindBuffer(GL_ARRAY_BUFFER,bobjs[1]);
+  glBufferData(GL_ARRAY_BUFFER,N*sizeof(GLfloat),NULL,GL_DYNAMIC_DRAW);
+  glVertexAttribPointer(1,1,GL_FLOAT,GL_FALSE,0,NULL);
+  glEnableVertexAttribArray(1);
 }
 
