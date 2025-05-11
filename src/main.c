@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <elm.h>
 #include <utils.h>
 
@@ -22,7 +23,8 @@ int main(int argc, char* argv[]){
   //Ciclo di elaborazione degli eventi, termino con 2
   uint8_t lastCommand=0;
   float c=-0.9f;
-  static unsigned i=0;
+  unsigned i=0;
+  float *bufferCopy=NULL;
   
   while(lastCommand != EXIT_ML){
     if(GetNSignals(MLC)){
@@ -30,12 +32,20 @@ int main(int argc, char* argv[]){
       lastCommand=GetCommandElement(event);
       switch(lastCommand){
       case REQUEST_SERIAL:
-        float *buffer=argsT->bufferSignals;
-        buffer[i++]=c;
+        bufferCopy[i++]=c;
         c += 2e-3;
         break;
       case RENDER_GL:
+        //Copia del buffer per permettere di campionare anche durante il rendering
+        memcpy(argsT->bufferSignals,bufferCopy,sizeof(float)*argsT->nElementi);
         i=0;
+        break;
+      case START_RENDER:
+        bufferCopy=(float*)calloc(argsT->nElementi,sizeof(float));
+        i=0;
+        break;
+      case END_RENDER:
+        free(bufferCopy);
         break;
       default:
         break;

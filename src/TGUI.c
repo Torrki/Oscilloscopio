@@ -7,15 +7,16 @@
 #include <time.h>
 #include <utils.h>
 
-#define TOLL_DOUBLE 1e-4
-#define FPS 4.0
+#define FPS 10.0
 
 //Oggetto che rappresenta il display
 struct _DisplayOscilloscopio{
-  uint16_t width,height;
-  uint8_t hLines,vLines;
-  unsigned gain;
-  double T_Window,dt,T;
+  uint16_t width,height;    //Dimensioni display
+  uint8_t hLines,vLines;    //Numero di linee della griglia
+  unsigned gain;            //Guadagno del display
+  double T_Window,dt,T;     //Dimensione finestra, intervallo di campionamento, cursore nel tempo
+  unsigned N,k_camp,k;      //Cursore indice intero, elementi in totale
+  unsigned shiftFinestra;   //Divisore per lo scorrimento della finestra
 };
 
 struct GUI_Context{
@@ -35,6 +36,10 @@ void* Thread_GUI(void* args){
   gctx.draw=0;
   gctx.interval_GUI=1.0/FPS;
   
+  //Installazione dell'azione per SIGALRM
+  struct sigaction newAct={.sa_flags=0, .sa_handler=alrmHandler};
+  sigaction(SIGALRM, &newAct, NULL);
+  
   //Creazione e start dell'applicazione
   GtkApplication *app=gtk_application_new("gtk.Oscilloscopio", G_APPLICATION_DEFAULT_FLAGS);
   g_signal_connect(G_APPLICATION(app), "activate", G_CALLBACK(InitApp), args);
@@ -53,6 +58,7 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   gctx.Display=GTK_GL_AREA(gtk_builder_get_object(builder, "DisplayArea"));
   GtkToggleButton *ButtonSE=GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "SE"));
   
+  //Impostazione dell'oscilloscopio
   gctx.osc=(DisplayOsc*)calloc(1,sizeof(DisplayOsc));
   gctx.osc->width=900;
   gctx.osc->height=500;
@@ -61,7 +67,8 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   gctx.osc->gain=10.0;
   gctx.osc->dt=1e-2;
   gctx.osc->T_Window=3.0;
-  gctx.osc->T=0.0;
+  gctx.osc->N=(unsigned)floor(gctx.osc->T_Window/gctx.osc->dt);
+  gctx.osc->shiftFinestra=5;
   
   //Bind delle funzioni ai widget
   g_signal_connect(gctx.Display,"render",G_CALLBACK(render),NULL);
@@ -81,41 +88,40 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     gtk_button_set_label(GTK_BUTTON(self),"Stop");
     
     //Creo il buffer per la condivisione dei segnali e di GL
-    double dimBuffer=ceil((1.0/gctx.osc->dt)/FPS);
-    *bufferSignals=(float*)calloc((int)dimBuffer,sizeof(float));
+    gctx.osc->k=0;
+    gctx.osc->T=0.0;
+    gctx.osc->k_camp=0;
+    gctx.argsT->nElementi=(unsigned)floor(1.0/(FPS*gctx.osc->dt));
+    *bufferSignals=(float*)calloc(gctx.argsT->nElementi,sizeof(GLfloat));
+    signalMainLoop(gctx.argsT->mlc,START_RENDER,NULL);
     
     //Creo e faccio partire il timer per il campionamento e per la GUI
-    timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));
-    
-    struct sigaction newAct={.sa_flags=0, .sa_handler=alrmHandler};
-    sigaction(SIGALRM, &newAct, NULL);
-    
+    timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));    
     long interval_ns=(long)floor( (gctx.osc->dt*1e9) );    
     struct itimerspec ts={.it_interval={.tv_sec=0L, .tv_nsec=interval_ns}, .it_value={.tv_sec=0L, .tv_nsec=interval_ns}};
-    
     timer_settime(gctx.idTimerCamp, 0, &ts, NULL);
+    
     gctx.draw=1;
   }else{
     //Se sono passato da Stop a Start
-    gctx.draw=0;
-    gtk_button_set_label(GTK_BUTTON(self),"Start");
     timer_delete(gctx.idTimerCamp);
+    gctx.draw=0;
+    signalMainLoop(gctx.argsT->mlc,END_RENDER,NULL);
+    gtk_button_set_label(GTK_BUTTON(self),"Start");
     free(*bufferSignals);
   }
 }
 
 void alrmHandler(int seg){
-  static double interval_GUI=0.0;
-  
   //Ad ogni SIGALARM mando un messaggio evento al mainloop per segnalare il thread della seriale
   signalMainLoop(gctx.argsT->mlc,REQUEST_SERIAL,NULL);
-
-  interval_GUI += gctx.osc->dt;
-  if(fabs(interval_GUI - gctx.interval_GUI) <= TOLL_DOUBLE ){
+  
+  ++gctx.osc->k_camp;
+  if(gctx.osc->k_camp % gctx.argsT->nElementi == 0){
     //Richiesta di disegno al display per aggiornare
-    gtk_gl_area_queue_render(gctx.Display);
-    interval_GUI=0.0;
     signalMainLoop(gctx.argsT->mlc,RENDER_GL,NULL);
+    gctx.osc->k_camp=0;
+    gtk_gl_area_queue_render(gctx.Display);
   }
 }
 
@@ -123,40 +129,40 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context) {
     //Se sono nella fase di disegno inizio a scrivere il buffer
     glClear(GL_COLOR_BUFFER_BIT);
     if(gctx.draw){
-      double nElementi=ceil((1.0/gctx.osc->dt)/FPS);
-      double k=floor(gctx.osc->T/gctx.osc->dt);
-      double incremento_tempo=gctx.osc->dt*nElementi;
-      int k_size=(GLsizei)(k+nElementi);
-      g_print("%lf\n%lf\n%d\n",incremento_tempo,k,k_size);
+      unsigned nElementi=gctx.argsT->nElementi;
+      // unsigned k=floor(gctx.osc->T/gctx.osc->dt);
+      unsigned k_size=gctx.osc->k+nElementi;
 
       //Scrorrimento della finestra del display
-      if(gctx.osc->T + incremento_tempo > gctx.osc->T_Window){
-        double endElement=floor(gctx.osc->T/gctx.osc->dt);
-        float off_Copy= floor(endElement*(2.0/3.0))*sizeof(GLfloat);
-        float size_Copy=ceil(endElement*(1.0/3.0))*sizeof(GLfloat);
+      if(gctx.osc->T+gctx.interval_GUI > gctx.osc->T_Window){
+        // unsigned endElement=floor(gctx.osc->T/gctx.osc->dt);
+        unsigned off_Copy= ((gctx.osc->k*(gctx.osc->shiftFinestra-1))/gctx.osc->shiftFinestra)*sizeof(GLfloat);
+        unsigned size_Copy= (gctx.osc->k/gctx.osc->shiftFinestra)*sizeof(GLfloat);
         glCopyBufferSubData(GL_ARRAY_BUFFER,GL_ARRAY_BUFFER,off_Copy,0,size_Copy);
         
         //Modifica del cursore e pulizia display
-        gctx.osc->T = floor(gctx.osc->T_Window*(1.0/3.0));
-        k=floor(gctx.osc->T/gctx.osc->dt);
-        k_size=(GLsizei)(k+nElementi);
+        gctx.osc->T /= (double)gctx.osc->shiftFinestra;
+        gctx.osc->k /= gctx.osc->shiftFinestra;
+        k_size=(GLsizei)(gctx.osc->k+nElementi);
         glFinish();
       }
       
-      const unsigned nElementi_u=(unsigned)nElementi;
-      GLfloat tGL[nElementi_u];
-      for(unsigned j=0; j<nElementi_u; ++j){
-        tGL[j]=-1.0+((gctx.osc->T + ((double)j)*gctx.osc->dt)/gctx.osc->T_Window)*2.0;
+      GLfloat tGL[nElementi];
+      double t=gctx.osc->T;
+      for(unsigned j=0; j<nElementi; ++j){
+        tGL[j]=-1.0+(t/gctx.osc->T_Window)*2.0;
+        t += gctx.osc->dt;
       }
       
-      glBufferSubData(GL_ARRAY_BUFFER,k*sizeof(GLfloat),nElementi_u*sizeof(GLfloat),gctx.argsT->bufferSignals);
+      glBufferSubData(GL_ARRAY_BUFFER,gctx.osc->k*sizeof(GLfloat),nElementi*sizeof(GLfloat),gctx.argsT->bufferSignals);
       glBindBuffer(GL_ARRAY_BUFFER,1);
-      glBufferSubData(GL_ARRAY_BUFFER,k*sizeof(GLfloat),nElementi_u*sizeof(GLfloat),&tGL);
+      glBufferSubData(GL_ARRAY_BUFFER,gctx.osc->k*sizeof(GLfloat),nElementi*sizeof(GLfloat),&tGL);
       glBindBuffer(GL_ARRAY_BUFFER,2);
       
       glDrawArrays(GL_POINTS,0,k_size);
       
-      gctx.osc->T += gctx.osc->dt*nElementi;
+      gctx.osc->k += nElementi;
+      gctx.osc->T += gctx.interval_GUI;
     }
     return TRUE;
 }
@@ -168,6 +174,8 @@ static void on_realize (GtkGLArea *area){
   if(gtk_gl_area_get_error(area) != NULL) return;
   
   g_print("%s\n",glGetString(GL_VERSION));
+  unsigned nElementi=(unsigned)floor(gctx.interval_GUI/gctx.osc->dt);
+  g_print("%u\n%lf\n%lf\n",nElementi,gctx.interval_GUI/gctx.osc->dt,gctx.interval_GUI);
   
   /*
   1.  Creazione degli shaders
