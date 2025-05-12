@@ -174,8 +174,8 @@ static void on_realize (GtkGLArea *area){
   if(gtk_gl_area_get_error(area) != NULL) return;
   
   g_print("%s\n",glGetString(GL_VERSION));
-  unsigned nElementi=(unsigned)floor(gctx.interval_GUI/gctx.osc->dt);
-  g_print("%u\n%lf\n%lf\n",nElementi,gctx.interval_GUI/gctx.osc->dt,gctx.interval_GUI);
+  //unsigned nElementi=(unsigned)floor(gctx.interval_GUI/gctx.osc->dt);
+  //g_print("%u\n%lf\n%lf\n",nElementi,gctx.interval_GUI/gctx.osc->dt,gctx.interval_GUI);
   
   /*
   1.  Creazione degli shaders
