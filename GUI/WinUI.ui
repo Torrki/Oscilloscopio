@@ -30,6 +30,31 @@
 			          </layout>
 			        </object>
 			      </child>
+			      <child>
+			        <object class="GtkLabel">
+			          <property name="margin-start">50</property>
+			          <property name="label">Serial Port:</property>
+			          <layout>
+			            <property name="column">1</property>
+			            <property name="row">0</property>
+			          </layout>
+			        </object>
+			      </child>
+			      <child>
+			        <object class="GtkDropDown" id="PortSelect">
+			          <property name="model">
+                  <object class="GtkStringList">
+                    <items>
+                      <item translatable="yes">None</item>
+                    </items>
+                  </object>
+                </property>
+                <layout>
+			            <property name="column">2</property>
+			            <property name="row">0</property>
+			          </layout>
+			        </object>
+			      </child>
 			    </object>
 			  </child>
 			</object>

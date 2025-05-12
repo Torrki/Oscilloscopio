@@ -5,14 +5,59 @@
 #include <limits.h>
 #include <dirent.h>
 #include <string.h>
+#include <utils.h>
 
 //Implementazione del thread per la seriale
 void* Thread_Seriale(void* args){
-  //struct _mlcontext *MLC=(struct _mlcontext *)args;
-  
+  struct argsThreadStruct *argsT=(struct argsThreadStruct *)args;
+  while(waitSigCont() == 0 && argsT->comandoSeriale != EXIT_ML){
+    printf("comado seriale: %u\n",argsT->comandoSeriale);
+    switch(argsT->comandoSeriale){
+    case REQUEST_SERIAL:
+      
+      break;
+    }
+  }
+  //Attesa per la selezione della seriale
+  return NULL;
+}
+
+const char** ScanPorts(){
   //Codice per trovare tutte le seriali connesse, faccio la ricerca tramite il filesystem virtuale sys
+  //Prima ottengo il numero delle possibili seriali
   DIR *dir_sys_usb=opendir("/sys/bus/usb/drivers/usb");
   struct dirent* subdir=readdir(dir_sys_usb);
+  unsigned nSerials=0;
+  while(subdir){
+    if(subdir->d_type == DT_LNK){
+      char path[PATH_MAX]="/sys/bus/usb/drivers/usb/";
+      
+      //File per ottenere la classe del dispositivo
+      strcat(path,subdir->d_name);
+      strcat(path,"/bDeviceClass");
+      // printf("%s\n",path);
+      FILE *devClass=fopen(path,"r");
+      if(devClass){
+        unsigned BaseClass=0xFF;
+        if(fscanf(devClass,"%x",&BaseClass) == 1){
+          //printf("%x\n",BaseClass);
+          //Se è un dispositivo legato alla comunicazione e CDC esploro le sue interfaccie per trovare quella con il terminale tty
+          if(BaseClass == 2){
+            ++nSerials;
+          }
+        }
+        fclose(devClass);
+      }
+    }
+    subdir=readdir(dir_sys_usb);
+  }
+  closedir(dir_sys_usb);
+  
+  //Ora cerco per i tty
+  char** ports=(char**)calloc(nSerials+1,sizeof(char*));
+  unsigned i=0;
+  dir_sys_usb=opendir("/sys/bus/usb/drivers/usb");
+  subdir=readdir(dir_sys_usb);
   while(subdir){
     if(subdir->d_type == DT_LNK){
       char path[PATH_MAX]="/sys/bus/usb/drivers/usb/";
@@ -48,7 +93,10 @@ void* Thread_Seriale(void* args){
                   struct dirent* tty=readdir(dir_interface);
                   while(tty){
                     if(strstr(tty->d_name,"tty")){
-                      printf("file tty del device: /dev/%s\n", tty->d_name);
+                      char* porta=(char*)calloc(strlen(tty->d_name)+6,sizeof(char));
+                      sprintf(porta,"/dev/%s",tty->d_name);
+                      ports[i]=porta;
+                      ++i;
                     }
                     tty=readdir(dir_interface);
                   }
@@ -66,6 +114,5 @@ void* Thread_Seriale(void* args){
     subdir=readdir(dir_sys_usb);
   }
   closedir(dir_sys_usb);
-  //Attesa per la selezione della seriale
-  return NULL;
+  return (const char**)ports;
 }

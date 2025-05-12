@@ -94,6 +94,7 @@ int mlContextDelete(MlContext *mlc);
 int signalMainLoop(MlContext *mlc, uint8_t c, void* data);
 int signalMainLoopReply(MlContext *mlc, uint8_t c, void* data, void* res);
 int waitNewEvent(MlContext *mlc);
+int waitSigCont();
 int GetNSignals(MlContext *mlc);
 EQueueElement* PopEventQueue(MlContext *mlc);
 void PrintSignalQueue(MlContext *mlc);

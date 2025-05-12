@@ -6,6 +6,9 @@
 #include <signal.h>
 #include <time.h>
 #include <utils.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <termios.h>
 
 #define FPS 10.0
 
@@ -57,6 +60,7 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   GtkWindow *MainWin=GTK_WINDOW(gtk_builder_get_object(builder, "MainWin"));
   gctx.Display=GTK_GL_AREA(gtk_builder_get_object(builder, "DisplayArea"));
   GtkToggleButton *ButtonSE=GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "SE"));
+  GtkDropDown* PortSelect=GTK_DROP_DOWN(gtk_builder_get_object(builder,"PortSelect"));
   
   //Impostazione dell'oscilloscopio
   gctx.osc=(DisplayOsc*)calloc(1,sizeof(DisplayOsc));
@@ -69,6 +73,18 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   gctx.osc->T_Window=3.0;
   gctx.osc->N=(unsigned)floor(gctx.osc->T_Window/gctx.osc->dt);
   gctx.osc->shiftFinestra=5;
+  
+  //Popolazione del drop down con le porte trovate
+  signalMainLoop(gctx.argsT->mlc,SCAN_SERIAL,NULL);
+  waitSigCont();
+  
+  GtkStringList *portList=GTK_STRING_LIST(gtk_drop_down_get_model(PortSelect));
+  unsigned k=0;
+  while(gctx.argsT->porte[k]){
+    gtk_string_list_append(portList,gctx.argsT->porte[k]);
+    ++k;
+  }
+  gtk_drop_down_set_model(PortSelect,G_LIST_MODEL(portList));
   
   //Bind delle funzioni ai widget
   g_signal_connect(gctx.Display,"render",G_CALLBACK(render),NULL);
@@ -95,6 +111,20 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     *bufferSignals=(float*)calloc(gctx.argsT->nElementi,sizeof(GLfloat));
     signalMainLoop(gctx.argsT->mlc,START_RENDER,NULL);
     
+    //Apertura del file per la comunicazione
+    GtkDropDown* PortSelect=GTK_DROP_DOWN(gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),2,0));
+    GtkStringList* PortList=GTK_STRING_LIST(gtk_drop_down_get_model(PortSelect));
+    const char* fileDev=gtk_string_list_get_string(PortList,gtk_drop_down_get_selected(PortSelect));
+    g_print("%s\n", fileDev);
+    gctx.argsT->fdSeriale=open(fileDev, O_RDWR | O_NOCTTY | O_SYNC);
+    struct termios tty;
+
+    if (tcgetattr(gctx.argsT->fdSeriale, &tty) < 0) {
+      printf("Error from tcgetattr\n");
+    }else{
+      printf("baud rate: %d\nB9600: %d\n", cfgetospeed(&tty),B9600);
+    }
+    
     //Creo e faccio partire il timer per il campionamento e per la GUI
     timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));    
     long interval_ns=(long)floor( (gctx.osc->dt*1e9) );    
@@ -106,6 +136,7 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     //Se sono passato da Stop a Start
     timer_delete(gctx.idTimerCamp);
     gctx.draw=0;
+    close(gctx.argsT->fdSeriale);
     signalMainLoop(gctx.argsT->mlc,END_RENDER,NULL);
     gtk_button_set_label(GTK_BUTTON(self),"Start");
     free(*bufferSignals);
