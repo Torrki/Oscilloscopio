@@ -9,6 +9,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
+#include <errno.h>
+#include <string.h>
 
 #define FPS 10.0
 
@@ -69,7 +71,7 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   gctx.osc->hLines=7;
   gctx.osc->vLines=7;
   gctx.osc->gain=10.0;
-  gctx.osc->dt=1e-2;
+  gctx.osc->dt=5e-3;
   gctx.osc->T_Window=3.0;
   gctx.osc->N=(unsigned)floor(gctx.osc->T_Window/gctx.osc->dt);
   gctx.osc->shiftFinestra=5;
@@ -99,40 +101,97 @@ static void InitApp(GtkApplication *self, gpointer user_data){
 static void SEToggle(GtkToggleButton *self, gpointer user_data){
   float **bufferSignals=&(gctx.argsT->bufferSignals);
 
-  if(gtk_toggle_button_get_active(self)){
-    //Se sono passato da Start a Stop
-    gtk_button_set_label(GTK_BUTTON(self),"Stop");
-    
-    //Creo il buffer per la condivisione dei segnali e di GL
-    gctx.osc->k=0;
-    gctx.osc->T=0.0;
-    gctx.osc->k_camp=0;
-    gctx.argsT->nElementi=(unsigned)floor(1.0/(FPS*gctx.osc->dt));
-    *bufferSignals=(float*)calloc(gctx.argsT->nElementi,sizeof(GLfloat));
-    signalMainLoop(gctx.argsT->mlc,START_RENDER,NULL);
-    
+  if(gtk_toggle_button_get_active(self) && gctx.draw==0){    
     //Apertura del file per la comunicazione
     GtkDropDown* PortSelect=GTK_DROP_DOWN(gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),2,0));
     GtkStringList* PortList=GTK_STRING_LIST(gtk_drop_down_get_model(PortSelect));
     const char* fileDev=gtk_string_list_get_string(PortList,gtk_drop_down_get_selected(PortSelect));
     g_print("%s\n", fileDev);
-    gctx.argsT->fdSeriale=open(fileDev, O_RDWR | O_NOCTTY | O_SYNC);
-    struct termios tty;
-
-    if (tcgetattr(gctx.argsT->fdSeriale, &tty) < 0) {
-      printf("Error from tcgetattr\n");
+    
+    //Impostazione per il file tty
+    int serial_fd = open(fileDev, O_RDWR | O_NOCTTY | O_SYNC);
+    if (serial_fd < 0) {
+        fprintf(stderr, "Failed to open serial port: %s\n", strerror(errno));
+        gtk_toggle_button_set_active(self,0);
     }else{
-      printf("baud rate: %d\nB9600: %d\n", cfgetospeed(&tty),B9600);
+      struct termios tty;
+      memset(&tty, 0, sizeof tty);
+
+      if (tcgetattr(serial_fd, &tty) != 0) {
+          fprintf(stderr, "Error from tcgetattr: %s\n", strerror(errno));
+          close(serial_fd);
+          gtk_toggle_button_set_active(self,0);
+      }else{
+        cfsetospeed(&tty, B9600);
+        cfsetispeed(&tty, B9600);
+
+        // Configure settings: 8N1 mode (8 data bits, no parity, 1 stop bit)
+        tty.c_cflag &= ~PARENB; // No parity
+        tty.c_cflag &= ~CSTOPB; // One stop bit
+        tty.c_cflag &= ~CSIZE;
+        tty.c_cflag |= CS8;     // 8 data bits
+        tty.c_cflag &= ~CRTSCTS; // No hardware flow control
+        tty.c_cflag |= CREAD | CLOCAL; // Enable receiver, ignore modem control lines
+
+        tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); // Raw input
+        tty.c_iflag &= ~(IXON | IXOFF | IXANY); // No software flow control
+        tty.c_oflag &= ~OPOST; // Raw output
+
+        // Set blocking read with a 1-second timeout
+        tty.c_cc[VMIN] = 0;
+        tty.c_cc[VTIME] = 10; // 1 second timeout
+
+        if (tcsetattr(serial_fd, TCSANOW, &tty) != 0) {
+            fprintf(stderr, "Error from tcsetattr: %s\n", strerror(errno));
+            close(serial_fd);
+            gtk_toggle_button_set_active(self,0);
+        }else{
+          fsync(serial_fd);
+          char buffer[10]={};
+          ssize_t bytesRead=0,bytesWrite=0;
+          ssize_t bytesCommand=strlen("Start\n");
+          while(bytesRead < bytesCommand){
+            bytesRead += read(serial_fd,buffer+bytesRead,10-bytesRead);
+            //g_print("%ld\n", bytesRead);
+          }
+          //g_print("%s\n",buffer);
+          //Arrivato il comando di start per il campionamento
+          if(strcmp(buffer,"Start\n")==0){
+            char risposta='K';
+            bytesWrite=write(serial_fd,&risposta,sizeof(char));
+            //g_print("%ld\n", bytesWrite);
+            bytesRead=0;
+            while(bytesRead < 1){
+              bytesRead += read(serial_fd,buffer+bytesRead,10-bytesRead);
+              //g_print("%ld\nnumero:%c\n", bytesRead,*buffer);
+            }
+            //g_print("%s\n",buffer);
+            gtk_button_set_label(GTK_BUTTON(self),"Stop");
+            
+            //Creo il buffer per la condivisione dei segnali e di GL
+            gctx.osc->k=0;
+            gctx.osc->T=0.0;
+            gctx.osc->k_camp=0;
+            gctx.argsT->nElementi=(unsigned)floor(1.0/(FPS*gctx.osc->dt));
+            *bufferSignals=(float*)calloc(gctx.argsT->nElementi,sizeof(GLfloat));
+            signalMainLoop(gctx.argsT->mlc,START_RENDER,NULL);
+            
+            //Creo e faccio partire il timer per il campionamento e per la GUI
+            timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));    
+            long interval_ns=(long)floor( (gctx.osc->dt*1e9) );    
+            struct itimerspec ts={.it_interval={.tv_sec=0L, .tv_nsec=interval_ns}, .it_value={.tv_sec=0L, .tv_nsec=interval_ns}};
+            timer_settime(gctx.idTimerCamp, 0, &ts, NULL);
+            gctx.draw=1;
+            gctx.argsT->fdSeriale=serial_fd;
+          }else{
+            close(serial_fd);
+            gtk_toggle_button_set_active(self,0);
+            fprintf(stderr,"Comando di start errato\n");
+          }
+        }
+      }
     }
-    
-    //Creo e faccio partire il timer per il campionamento e per la GUI
-    timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));    
-    long interval_ns=(long)floor( (gctx.osc->dt*1e9) );    
-    struct itimerspec ts={.it_interval={.tv_sec=0L, .tv_nsec=interval_ns}, .it_value={.tv_sec=0L, .tv_nsec=interval_ns}};
-    timer_settime(gctx.idTimerCamp, 0, &ts, NULL);
-    
-    gctx.draw=1;
-  }else{
+  }else if(gctx.draw==1){
     //Se sono passato da Stop a Start
     timer_delete(gctx.idTimerCamp);
     gctx.draw=0;
@@ -140,6 +199,7 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     signalMainLoop(gctx.argsT->mlc,END_RENDER,NULL);
     gtk_button_set_label(GTK_BUTTON(self),"Start");
     free(*bufferSignals);
+    *bufferSignals=NULL;
   }
 }
 

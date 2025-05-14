@@ -27,7 +27,6 @@ int main(int argc, char* argv[]){
   float c=-0.9f;
   unsigned i=0;
   float *bufferCopy=NULL;
-  unsigned char *bufferChar=NULL;
   
   while(lastCommand != EXIT_ML){
     if(GetNSignals(MLC)){
@@ -35,8 +34,11 @@ int main(int argc, char* argv[]){
       lastCommand=GetCommandElement(event);
       switch(lastCommand){
       case REQUEST_SERIAL:
-        //bufferCopy[i++]=c;
-        //c += 2e-3;
+        uint8_t dato=0;
+        read(argsT->fdSeriale,&dato,sizeof(char));
+        printf("%hhu\n",dato);
+        bufferCopy[i++]=((float)dato)/500.0f;
+        c += 2e-3;
         //argsT->comandoSeriale=REQUEST_SERIAL;
         //pthread_kill(idThreads[0],SIGCONT);
         //int bytesRead=read(argsT->fdSeriale,bufferChar+i,1);
@@ -48,13 +50,11 @@ int main(int argc, char* argv[]){
         break;
       case START_RENDER:
         bufferCopy=(float*)calloc(argsT->nElementi,sizeof(float));
-        bufferChar=(unsigned char*)calloc(argsT->nElementi,sizeof(char));
         //TODO: fare il flush della seriale per eliminare i dati precedenti
         i=0;
         break;
       case END_RENDER:
         free(bufferCopy);
-        free(bufferChar);
         break;
       case SCAN_SERIAL:
         argsT->comandoSeriale=SCAN_SERIAL;
