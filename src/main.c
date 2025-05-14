@@ -34,14 +34,11 @@ int main(int argc, char* argv[]){
       lastCommand=GetCommandElement(event);
       switch(lastCommand){
       case REQUEST_SERIAL:
+        //Lettura dalla seriale del dato attuale
         uint8_t dato=0;
         read(argsT->fdSeriale,&dato,sizeof(char));
-        printf("%hhu\n",dato);
         bufferCopy[i++]=((float)dato)/500.0f;
         c += 2e-3;
-        //argsT->comandoSeriale=REQUEST_SERIAL;
-        //pthread_kill(idThreads[0],SIGCONT);
-        //int bytesRead=read(argsT->fdSeriale,bufferChar+i,1);
         break;
       case RENDER_GL:
         //Copia del buffer per permettere di campionare anche durante il rendering
@@ -49,14 +46,16 @@ int main(int argc, char* argv[]){
         i=0;
         break;
       case START_RENDER:
+        //Allocazione della memoria per il campionamento
         bufferCopy=(float*)calloc(argsT->nElementi,sizeof(float));
-        //TODO: fare il flush della seriale per eliminare i dati precedenti
         i=0;
         break;
       case END_RENDER:
+        //Deallocazione della memoria del campionamento
         free(bufferCopy);
         break;
       case SCAN_SERIAL:
+        //Comando per la scansione delle seriali CDC disponibili
         argsT->comandoSeriale=SCAN_SERIAL;
         //Se ho già fatto una scansione cancello il risultato
         if(argsT->porte){

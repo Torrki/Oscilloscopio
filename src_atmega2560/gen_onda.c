@@ -5,23 +5,16 @@
 
 #define BAUD 9600
 #define START_COMMAND "Start\n"
-#define WAIT 1
-#define CAMPIONA 2
-#define FINE 3
+#define START 1
+#define WAIT 2
+#define CAMPIONA 3
+#define FINE 4
 
-volatile uint8_t stato=WAIT;
+volatile uint8_t stato=START;
 volatile uint8_t segnale=0;
 void usart_pstr(char *s);
 void usart_putchar(char data);
-
-ISR(USART0_RX_vect){
-  uint8_t dato=UDR0;
-  if(stato==WAIT && dato=='K'){
-    stato=CAMPIONA;
-  }else if(stato == CAMPIONA && dato=='S'){
-    stato=FINE;
-  }
-}
+char usart_getchar(void);
 
 ISR(TIMER0_COMPA_vect){
   while ( !(UCSR0A & (_BV(UDRE0))) );
@@ -38,31 +31,40 @@ int main(){
   Di deafult lo stato di sleep è IDLE
   */
   cli();
+  //Impostazione della USART
   DDRB |= 0x80;
   PORTB &= ~0x80;
   uint16_t ubrr=F_CPU/16/BAUD-1;
   UBRR0H = (uint8_t)(ubrr>>8);
   UBRR0L = (uint8_t)ubrr;
 
-  UCSR0C = _BV(UCSZ01) | _BV(UCSZ00); /* 8-bit data */ 
-  UCSR0B = _BV(RXEN0) | _BV(TXEN0) | _BV(RXCIE0);   /* Enable RX and TX */
+  UCSR0C = _BV(UCSZ01) | _BV(UCSZ00);
+  UCSR0B = _BV(RXEN0) | _BV(TXEN0);
   sei();
   
   //Segnalo che la seriale lato Arduino è pronta
   usart_pstr(START_COMMAND);
   while ( !(UCSR0A & (_BV(TXC0))) );
-  UCSR0A |= _BV(UDRE0) | _BV(TXC0);
-  while(stato == WAIT);
-  usart_putchar('K');
-  while ( !(UCSR0A & (_BV(TXC0))) );
-  UCSR0A |= _BV(UDRE0) | _BV(TXC0);
+  UCSR0A |= _BV(TXC0);
   
-  //TODO: Impostare il timer per la freq di campionamento e la generazione del segnale
+  //Aspetto la risposta dell'applicazione
+  char c=usart_getchar();
+  UCSR0A |= _BV(UDRE0) | _BV(RXC0);
+  
+  //Impostazione del timer per la freq di campionamento e la generazione del segnale
   const uint8_t ocra=155;
   TCCR0A |= _BV(WGM01);  //CTC
   OCR0A=ocra;
   TIMSK0 |= _BV(OCIE0A); //Interrupt per la comparazione del timer
+  
+  //Segnalo che il timer è pronto a partire
+  usart_putchar('K');
+  while ( !(UCSR0A & (_BV(TXC0))) );
+  UCSR0A |= _BV(UDRE0) | _BV(TXC0);
+  //Aspetto la risposta dell'applicazione
+  c=usart_getchar();
   TCCR0B |= _BV(CS02);   //256 di prescaler e start del timer
+  PORTB |= 0x80;
   while(1);
   return 0;
 }
@@ -72,6 +74,13 @@ void usart_putchar(char data) {
     while ( !(UCSR0A & (_BV(UDRE0))) );
     // Start transmission
     UDR0 = data; 
+}
+
+char usart_getchar(void) {
+    // Wait for incoming data
+    while ( !(UCSR0A & (_BV(RXC0))) );
+    // Return the data
+    return UDR0;
 }
 
 void usart_pstr(char *s) {

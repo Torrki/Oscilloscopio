@@ -145,29 +145,28 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
             fprintf(stderr, "Error from tcsetattr: %s\n", strerror(errno));
             close(serial_fd);
             gtk_toggle_button_set_active(self,0);
-        }else{
-          fsync(serial_fd);
-          char buffer[10]={};
+        }else{          
+          //Flush del contenuto, sono sicuro che Start non viene toccato dato che Arduino sta aspettando il segnale
+          tcflush(serial_fd,TCIOFLUSH);
+          
           ssize_t bytesRead=0,bytesWrite=0;
-          ssize_t bytesCommand=strlen("Start\n");
-          while(bytesRead < bytesCommand){
+          char buffer[10]={};
+          char risposta='S';
+          
+          while(bytesRead < strlen("Start\n")){
             bytesRead += read(serial_fd,buffer+bytesRead,10-bytesRead);
-            //g_print("%ld\n", bytesRead);
           }
-          //g_print("%s\n",buffer);
-          //Arrivato il comando di start per il campionamento
-          if(strcmp(buffer,"Start\n")==0){
-            char risposta='K';
+          g_print("%s\n",buffer);
+          if(strcmp(buffer,"Start\n") == 0){
+            //Risposta per far continuare l'Arduino
             bytesWrite=write(serial_fd,&risposta,sizeof(char));
-            //g_print("%ld\n", bytesWrite);
+            tcdrain(serial_fd);
             bytesRead=0;
-            while(bytesRead < 1){
-              bytesRead += read(serial_fd,buffer+bytesRead,10-bytesRead);
-              //g_print("%ld\nnumero:%c\n", bytesRead,*buffer);
-            }
-            //g_print("%s\n",buffer);
-            gtk_button_set_label(GTK_BUTTON(self),"Stop");
+            risposta='K';
+            bytesRead += read(serial_fd,&risposta,1);
+            g_print("%c\n",risposta);
             
+            gtk_button_set_label(GTK_BUTTON(self),"Stop");
             //Creo il buffer per la condivisione dei segnali e di GL
             gctx.osc->k=0;
             gctx.osc->T=0.0;
@@ -176,17 +175,24 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
             *bufferSignals=(float*)calloc(gctx.argsT->nElementi,sizeof(GLfloat));
             signalMainLoop(gctx.argsT->mlc,START_RENDER,NULL);
             
-            //Creo e faccio partire il timer per il campionamento e per la GUI
+            //Creo il timer per il campionamento e per la GUI
             timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));    
             long interval_ns=(long)floor( (gctx.osc->dt*1e9) );    
             struct itimerspec ts={.it_interval={.tv_sec=0L, .tv_nsec=interval_ns}, .it_value={.tv_sec=0L, .tv_nsec=interval_ns}};
+            
+            //Invio della conferma per far continuare l'Arduino
+            risposta='C';
+            bytesWrite=write(serial_fd,&risposta,sizeof(char));
+            tcdrain(serial_fd);
+            
+            //Faccio partire il timer dell'applicazione
             timer_settime(gctx.idTimerCamp, 0, &ts, NULL);
             gctx.draw=1;
             gctx.argsT->fdSeriale=serial_fd;
           }else{
+            fprintf(stderr, "Comando di start errato\n");
             close(serial_fd);
             gtk_toggle_button_set_active(self,0);
-            fprintf(stderr,"Comando di start errato\n");
           }
         }
       }
@@ -195,6 +201,7 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     //Se sono passato da Stop a Start
     timer_delete(gctx.idTimerCamp);
     gctx.draw=0;
+    tcflush(gctx.argsT->fdSeriale,TCIOFLUSH);
     close(gctx.argsT->fdSeriale);
     signalMainLoop(gctx.argsT->mlc,END_RENDER,NULL);
     gtk_button_set_label(GTK_BUTTON(self),"Start");
