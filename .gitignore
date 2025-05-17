@@ -1,2 +1,5 @@
 build/
 libs/
+src_atmega2560/*.elf
+src_atmega2560/*.hex
+src_atmega2560/*.o

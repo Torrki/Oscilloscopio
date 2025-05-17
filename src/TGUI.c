@@ -106,7 +106,7 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     GtkDropDown* PortSelect=GTK_DROP_DOWN(gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),2,0));
     GtkStringList* PortList=GTK_STRING_LIST(gtk_drop_down_get_model(PortSelect));
     const char* fileDev=gtk_string_list_get_string(PortList,gtk_drop_down_get_selected(PortSelect));
-    g_print("%s\n", fileDev);
+    //g_print("%s\n", fileDev);
     
     //Impostazione per il file tty
     int serial_fd = open(fileDev, O_RDWR | O_NOCTTY | O_SYNC);
@@ -156,7 +156,7 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
           while(bytesRead < strlen("Start\n")){
             bytesRead += read(serial_fd,buffer+bytesRead,10-bytesRead);
           }
-          g_print("%s\n",buffer);
+          //g_print("%s\n",buffer);
           if(strcmp(buffer,"Start\n") == 0){
             //Risposta per far continuare l'Arduino
             bytesWrite=write(serial_fd,&risposta,sizeof(char));
@@ -164,7 +164,7 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
             bytesRead=0;
             risposta='K';
             bytesRead += read(serial_fd,&risposta,1);
-            g_print("%c\n",risposta);
+            //g_print("%c\n",risposta);
             
             gtk_button_set_label(GTK_BUTTON(self),"Stop");
             //Creo il buffer per la condivisione dei segnali e di GL
@@ -201,12 +201,21 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     //Se sono passato da Stop a Start
     timer_delete(gctx.idTimerCamp);
     gctx.draw=0;
-    tcflush(gctx.argsT->fdSeriale,TCIOFLUSH);
-    close(gctx.argsT->fdSeriale);
+    
+    //Segnale per interrompere l'Arduino
+    char risposta='C';
+    ssize_t bytesWrite=write(gctx.argsT->fdSeriale,&risposta,sizeof(char));
+    tcdrain(gctx.argsT->fdSeriale);
+    
+    //Segnalazione al mainloop, l'Arduino ha il tempo di terminare
     signalMainLoop(gctx.argsT->mlc,END_RENDER,NULL);
     gtk_button_set_label(GTK_BUTTON(self),"Start");
     free(*bufferSignals);
     *bufferSignals=NULL;
+    
+    //Arrivo al flush con l'Arduino che ha termonato e non trasmette più dati
+    tcflush(gctx.argsT->fdSeriale,TCIOFLUSH);
+    close(gctx.argsT->fdSeriale);
   }
 }
 

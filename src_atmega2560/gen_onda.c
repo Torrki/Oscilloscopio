@@ -65,7 +65,7 @@ int main(){
   c=usart_getchar();
   TCCR0B |= _BV(CS02);   //256 di prescaler e start del timer
   PORTB |= 0x80;
-  while(1);
+  c=usart_getchar();
   return 0;
 }
 
