@@ -11,15 +11,18 @@
 #define FINE 4
 
 volatile uint8_t stato=START;
-volatile uint8_t segnale=0;
+volatile float segnaleFloat=0.0f;
+float freqTimer=0.0f,intervalTimer=0.0f;
+
 void usart_pstr(char *s);
 void usart_putchar(char data);
 char usart_getchar(void);
 
 ISR(TIMER0_COMPA_vect){
+  if(segnaleFloat > 255.0f) segnaleFloat=0.0f;
   while ( !(UCSR0A & (_BV(UDRE0))) );
-  UDR0 = segnale;
-  segnale++;
+  UDR0 = (uint8_t)segnaleFloat;
+  segnaleFloat += intervalTimer*120.0f;
 }
 
 int main(){  
@@ -56,6 +59,8 @@ int main(){
   TCCR0A |= _BV(WGM01);  //CTC
   OCR0A=ocra;
   TIMSK0 |= _BV(OCIE0A); //Interrupt per la comparazione del timer
+  freqTimer=F_CPU/(2.0f*256.0f*(1.0f+(float)ocra));
+  intervalTimer = 1.0f/freqTimer;
   
   //Segnalo che il timer è pronto a partire
   usart_putchar('K');

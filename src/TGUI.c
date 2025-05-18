@@ -6,11 +6,10 @@
 #include <signal.h>
 #include <time.h>
 #include <utils.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
-#include <errno.h>
 #include <string.h>
+#include <errno.h>
 
 #define FPS 10.0
 
@@ -31,10 +30,8 @@ struct GUI_Context{
   timer_t idTimerCamp;
   uint8_t draw;
   double interval_GUI;
+  GLuint bobjs[2];
 }gctx;
-
-static gboolean render (GtkGLArea *area, GdkGLContext *context);
-static void on_realize (GtkGLArea *area);
 
 void* Thread_GUI(void* args){
   gctx.argsT=(struct argsThreadStruct *)args;
@@ -49,7 +46,11 @@ void* Thread_GUI(void* args){
   GtkApplication *app=gtk_application_new("gtk.Oscilloscopio", G_APPLICATION_DEFAULT_FLAGS);
   g_signal_connect(G_APPLICATION(app), "activate", G_CALLBACK(InitApp), args);
   int status=g_application_run(G_APPLICATION(app), 0, NULL);
-  g_print("exit status: %d\n",status);
+  if(status == 0){
+    g_print("Applicazione terminata correttamente\n");
+  }else{
+    g_print("Applicazione terminata con un errore\n");
+  }
   
   //Segnalazione al Main-Loop di uscire dal ciclo
   signalMainLoop(gctx.argsT->mlc,EXIT_ML,NULL);
@@ -72,7 +73,7 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   gctx.osc->vLines=7;
   gctx.osc->gain=10.0;
   gctx.osc->dt=5e-3;
-  gctx.osc->T_Window=3.0;
+  gctx.osc->T_Window=1.0;
   gctx.osc->N=(unsigned)floor(gctx.osc->T_Window/gctx.osc->dt);
   gctx.osc->shiftFinestra=5;
   
@@ -92,6 +93,7 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   g_signal_connect(gctx.Display,"render",G_CALLBACK(render),NULL);
   g_signal_connect(gctx.Display,"realize",G_CALLBACK(on_realize),NULL);
   g_signal_connect(ButtonSE,"toggled",G_CALLBACK(SEToggle),NULL);
+  g_signal_connect(MainWin,"close-request",G_CALLBACK(CloseRequestWindow),NULL);
   
   //Aggiunta della finestra principale all'applicazione
   gtk_application_add_window(self,MainWin);
@@ -101,103 +103,90 @@ static void InitApp(GtkApplication *self, gpointer user_data){
 static void SEToggle(GtkToggleButton *self, gpointer user_data){
   float **bufferSignals=&(gctx.argsT->bufferSignals);
 
-  if(gtk_toggle_button_get_active(self) && gctx.draw==0){    
+  if(gtk_toggle_button_get_active(self) && gctx.draw==0){
     //Apertura del file per la comunicazione
     GtkDropDown* PortSelect=GTK_DROP_DOWN(gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),2,0));
     GtkStringList* PortList=GTK_STRING_LIST(gtk_drop_down_get_model(PortSelect));
-    const char* fileDev=gtk_string_list_get_string(PortList,gtk_drop_down_get_selected(PortSelect));
-    //g_print("%s\n", fileDev);
     
-    //Impostazione per il file tty
-    int serial_fd = open(fileDev, O_RDWR | O_NOCTTY | O_SYNC);
-    if (serial_fd < 0) {
-        fprintf(stderr, "Failed to open serial port: %s\n", strerror(errno));
-        gtk_toggle_button_set_active(self,0);
+    //Allocazione per il parametro del comando
+    const char* fileDev=gtk_string_list_get_string(PortList,gtk_drop_down_get_selected(PortSelect));
+    char *filePar=(char*)calloc(strlen(fileDev)+1,sizeof(char));
+    int *retValue=(int*)malloc(sizeof(int));
+    memcpy(filePar,fileDev,strlen(fileDev)*sizeof(char));
+    
+    //Faccio eseguire il comando al ML per non far bloccare per troppo tempo la GUI
+    signalMainLoopReply(gctx.argsT->mlc,OPEN_SERIAL,filePar,retValue);
+    
+    if(*retValue == -1){
+      g_print("Seriale non aperta\n");
+      gtk_toggle_button_set_active(self,0);
     }else{
-      struct termios tty;
-      memset(&tty, 0, sizeof tty);
-
-      if (tcgetattr(serial_fd, &tty) != 0) {
-          fprintf(stderr, "Error from tcgetattr: %s\n", strerror(errno));
-          close(serial_fd);
-          gtk_toggle_button_set_active(self,0);
-      }else{
-        cfsetospeed(&tty, B9600);
-        cfsetispeed(&tty, B9600);
-
-        // Configure settings: 8N1 mode (8 data bits, no parity, 1 stop bit)
-        tty.c_cflag &= ~PARENB; // No parity
-        tty.c_cflag &= ~CSTOPB; // One stop bit
-        tty.c_cflag &= ~CSIZE;
-        tty.c_cflag |= CS8;     // 8 data bits
-        tty.c_cflag &= ~CRTSCTS; // No hardware flow control
-        tty.c_cflag |= CREAD | CLOCAL; // Enable receiver, ignore modem control lines
-
-        tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); // Raw input
-        tty.c_iflag &= ~(IXON | IXOFF | IXANY); // No software flow control
-        tty.c_oflag &= ~OPOST; // Raw output
-
-        // Set blocking read with a 1-second timeout
-        tty.c_cc[VMIN] = 0;
-        tty.c_cc[VTIME] = 10; // 1 second timeout
-
-        if (tcsetattr(serial_fd, TCSANOW, &tty) != 0) {
-            fprintf(stderr, "Error from tcsetattr: %s\n", strerror(errno));
-            close(serial_fd);
-            gtk_toggle_button_set_active(self,0);
-        }else{          
-          //Flush del contenuto, sono sicuro che Start non viene toccato dato che Arduino sta aspettando il segnale
-          tcflush(serial_fd,TCIOFLUSH);
+      //Codice per l'avviamento del campionamento
+      int serial_fd=*retValue;
+      ssize_t bytesRead=0,bytesWrite=0,bytesRead_tmp=0;
+      char buffer[10]={};
+      char risposta='S';
+      
+      tcflush(serial_fd,TCIOFLUSH);
+      while(bytesRead < strlen("Start\n")){
+        bytesRead_tmp = read(serial_fd,buffer+bytesRead,10-bytesRead);
+        if(bytesRead_tmp == -1){
+          fprintf(stderr, "Error from read: %s\n", strerror(errno));
+          break;
+        }else bytesRead += bytesRead_tmp;
+      }
+      
+      //Se non ci sono stati errori e il comando è esatto
+      if(bytesRead_tmp > -1 && strcmp(buffer,"Start\n") == 0){ 
+        //Risposta per far continuare l'Arduino
+        bytesWrite = write(serial_fd,&risposta,sizeof(char));
+        if(bytesWrite == -1){
+          fprintf(stderr, "Error from write: %s\n", strerror(errno));
+        }else{
+          tcdrain(serial_fd);
+        }
+        bytesRead=0;
+        risposta='K';
+        bytesRead += read(serial_fd,&risposta,1);
+        if(bytesRead == -1){
+          fprintf(stderr, "Error from read: %s\n", strerror(errno));
+        }else{
+          //g_print("%c\n",risposta);
+          gtk_button_set_label(GTK_BUTTON(self),"Stop");
           
-          ssize_t bytesRead=0,bytesWrite=0;
-          char buffer[10]={};
-          char risposta='S';
+          //Creo il buffer per la condivisione dei segnali e di GL
+          gctx.osc->k=0;
+          gctx.osc->T=0.0;
+          gctx.osc->k_camp=0;
+          gctx.argsT->nElementi=(unsigned)floor(1.0/(FPS*gctx.osc->dt));
+          *bufferSignals=(float*)calloc(gctx.argsT->nElementi,sizeof(GLfloat));
+          signalMainLoop(gctx.argsT->mlc,START_RENDER,NULL);
           
-          while(bytesRead < strlen("Start\n")){
-            bytesRead += read(serial_fd,buffer+bytesRead,10-bytesRead);
-          }
-          //g_print("%s\n",buffer);
-          if(strcmp(buffer,"Start\n") == 0){
-            //Risposta per far continuare l'Arduino
-            bytesWrite=write(serial_fd,&risposta,sizeof(char));
-            tcdrain(serial_fd);
-            bytesRead=0;
-            risposta='K';
-            bytesRead += read(serial_fd,&risposta,1);
-            //g_print("%c\n",risposta);
-            
-            gtk_button_set_label(GTK_BUTTON(self),"Stop");
-            //Creo il buffer per la condivisione dei segnali e di GL
-            gctx.osc->k=0;
-            gctx.osc->T=0.0;
-            gctx.osc->k_camp=0;
-            gctx.argsT->nElementi=(unsigned)floor(1.0/(FPS*gctx.osc->dt));
-            *bufferSignals=(float*)calloc(gctx.argsT->nElementi,sizeof(GLfloat));
-            signalMainLoop(gctx.argsT->mlc,START_RENDER,NULL);
-            
-            //Creo il timer per il campionamento e per la GUI
-            timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));    
-            long interval_ns=(long)floor( (gctx.osc->dt*1e9) );    
-            struct itimerspec ts={.it_interval={.tv_sec=0L, .tv_nsec=interval_ns}, .it_value={.tv_sec=0L, .tv_nsec=interval_ns}};
-            
-            //Invio della conferma per far continuare l'Arduino
-            risposta='C';
-            bytesWrite=write(serial_fd,&risposta,sizeof(char));
-            tcdrain(serial_fd);
-            
-            //Faccio partire il timer dell'applicazione
-            timer_settime(gctx.idTimerCamp, 0, &ts, NULL);
-            gctx.draw=1;
-            gctx.argsT->fdSeriale=serial_fd;
+          //Creo il timer per il campionamento e per la GUI
+          timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));    
+          long interval_ns=(long)floor( (gctx.osc->dt*1e9) );    
+          struct itimerspec ts={.it_interval={.tv_sec=0L, .tv_nsec=interval_ns}, .it_value={.tv_sec=0L, .tv_nsec=interval_ns}};
+          
+          //Invio della conferma per far continuare l'Arduino
+          risposta='C';
+          bytesWrite=write(serial_fd,&risposta,sizeof(char));
+          if(bytesWrite == -1){
+            fprintf(stderr, "Error from write: %s\n", strerror(errno));
           }else{
-            fprintf(stderr, "Comando di start errato\n");
-            close(serial_fd);
-            gtk_toggle_button_set_active(self,0);
+            tcdrain(serial_fd);
           }
+          
+          //Faccio partire il timer dell'applicazione
+          timer_settime(gctx.idTimerCamp, 0, &ts, NULL);
+          gctx.draw=1;      
+          gctx.argsT->fdSeriale=serial_fd;
         }
       }
+    
+      free(filePar);
+      free(retValue);
     }
-  }else if(gctx.draw==1){
+  }else if(gctx.draw){
     //Se sono passato da Stop a Start
     timer_delete(gctx.idTimerCamp);
     gctx.draw=0;
@@ -205,7 +194,11 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     //Segnale per interrompere l'Arduino
     char risposta='C';
     ssize_t bytesWrite=write(gctx.argsT->fdSeriale,&risposta,sizeof(char));
-    tcdrain(gctx.argsT->fdSeriale);
+    if(bytesWrite == -1){
+      fprintf(stderr, "Error from write: %s\n", strerror(errno));
+    }else{
+      tcdrain(gctx.argsT->fdSeriale);
+    }
     
     //Segnalazione al mainloop, l'Arduino ha il tempo di terminare
     signalMainLoop(gctx.argsT->mlc,END_RENDER,NULL);
@@ -366,18 +359,20 @@ static void on_realize (GtkGLArea *area){
   
   //Rilascio delle risorse
   glReleaseShaderCompiler();
+  glDeleteShader(vertexShader);
+  glDeleteShader(fragmentShader);
+  glDeleteProgram(prog);
   
   //Creazione dei buffer degli shaders, tempo e segnale
-  GLuint bobjs[2];
-  glGenBuffers(2,bobjs);
+  glGenBuffers(2,gctx.bobjs);
   unsigned N=floorf(gctx.osc->T_Window/gctx.osc->dt);
   
-  glBindBuffer(GL_ARRAY_BUFFER,bobjs[0]);
+  glBindBuffer(GL_ARRAY_BUFFER,gctx.bobjs[0]);
   glBufferData(GL_ARRAY_BUFFER,N*sizeof(GLfloat),NULL,GL_DYNAMIC_DRAW);
   glVertexAttribPointer(0,1,GL_FLOAT,GL_FALSE,0,NULL);
   glEnableVertexAttribArray(0);
   
-  glBindBuffer(GL_ARRAY_BUFFER,bobjs[1]);
+  glBindBuffer(GL_ARRAY_BUFFER,gctx.bobjs[1]);
   glBufferData(GL_ARRAY_BUFFER,N*sizeof(GLfloat),NULL,GL_DYNAMIC_DRAW);
   glVertexAttribPointer(1,1,GL_FLOAT,GL_FALSE,0,NULL);
   glEnableVertexAttribArray(1);
@@ -385,3 +380,34 @@ static void on_realize (GtkGLArea *area){
   glClearColor(0.0, 0.0, 0.0, 1.0);
 }
 
+static gboolean CloseRequestWindow (GtkWindow* self, gpointer user_data){
+  float **bufferSignals=&(gctx.argsT->bufferSignals);
+  
+  //Deallocazione delle risorse
+  glDeleteBuffers(2,gctx.bobjs);
+  
+  //Se chiudo la finestra mentre sto ancora disegnando
+  if(gctx.draw){
+    timer_delete(gctx.idTimerCamp);
+    gctx.draw=0;
+    
+    //Segnale per interrompere l'Arduino
+    char risposta='C';
+    ssize_t bytesWrite=write(gctx.argsT->fdSeriale,&risposta,sizeof(char));
+    if(bytesWrite == -1){
+      fprintf(stderr, "Error from write: %s\n", strerror(errno));
+    }else{
+      tcdrain(gctx.argsT->fdSeriale);
+    }
+    
+    //Segnalazione al mainloop, l'Arduino ha il tempo di terminare
+    signalMainLoop(gctx.argsT->mlc,END_RENDER,NULL);
+    free(*bufferSignals);
+    *bufferSignals=NULL;
+    
+    //Arrivo al flush con l'Arduino che ha termonato e non trasmette più dati
+    tcflush(gctx.argsT->fdSeriale,TCIOFLUSH);
+    close(gctx.argsT->fdSeriale);
+  }
+  return FALSE;
+}

@@ -8,23 +8,20 @@
 
 //Dichiarazione del thread che gestisce la grafica
 void* Thread_GUI(void* args);
-void* Thread_Seriale(void* args);
 
 int main(int argc, char* argv[]){
   //Creazione del contesto del Main-Loop
   MlContext *MLC;
-  pthread_t idThreads[2];
+  pthread_t idThread;
   mlContextNew(&MLC);
   
   struct argsThreadStruct *argsT=(struct argsThreadStruct*)calloc(1,sizeof(struct argsThreadStruct));
   argsT->mlc=MLC;
   
-  pthread_create(idThreads,NULL,Thread_Seriale,argsT);
-  pthread_create(idThreads+1,NULL,Thread_GUI,argsT);
+  pthread_create(&idThread,NULL,Thread_GUI,argsT);
   
   //Ciclo di elaborazione degli eventi, termino con 2
   uint8_t lastCommand=0;
-  float c=-0.9f;
   unsigned i=0;
   float *bufferCopy=NULL;
   
@@ -36,9 +33,12 @@ int main(int argc, char* argv[]){
       case REQUEST_SERIAL:
         //Lettura dalla seriale del dato attuale
         uint8_t dato=0;
-        read(argsT->fdSeriale,&dato,sizeof(char));
-        bufferCopy[i++]=((float)dato)/500.0f;
-        c += 2e-3;
+        float datoFloat=0.0f;
+        ssize_t readByte=read(argsT->fdSeriale,&dato,sizeof(char));
+        if(readByte > -1){
+          datoFloat = ((float)dato)/500.0f;
+        }
+        bufferCopy[i++]=datoFloat;
         break;
       case RENDER_GL:
         //Copia del buffer per permettere di campionare anche durante il rendering
@@ -53,6 +53,7 @@ int main(int argc, char* argv[]){
       case END_RENDER:
         //Deallocazione della memoria del campionamento
         free(bufferCopy);
+        bufferCopy=NULL;
         break;
       case SCAN_SERIAL:
         //Comando per la scansione delle seriali CDC disponibili
@@ -67,8 +68,13 @@ int main(int argc, char* argv[]){
           free(argsT->porte);
         }
         argsT->porte=ScanPorts();
-        pthread_kill(idThreads[0],SIGCONT);
-        pthread_kill(idThreads[1],SIGCONT);
+        pthread_kill(idThread,SIGCONT);
+        break;
+      case OPEN_SERIAL:
+        int* retAddr=(int*)GetResAddrElement(event);
+        const char* filePar=(const char*)GetDataAddrElement(event);
+        *retAddr=OpenSerial(filePar);
+        pthread_kill(idThread,SIGCONT);
         break;
       default:
         break;
@@ -79,14 +85,10 @@ int main(int argc, char* argv[]){
       waitNewEvent(MLC);
     }
   }
-  argsT->comandoSeriale=EXIT_ML;
-  pthread_kill(idThreads[0],SIGCONT);
-  
-  pthread_join(*idThreads,NULL);
-  pthread_join(*(idThreads+1),NULL);
+  pthread_join(idThread,NULL);
   
   free(argsT);
-  PrintSignalQueue(MLC);
+  //PrintSignalQueue(MLC);
   mlContextDelete(MLC);
   return 0;
 }

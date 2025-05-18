@@ -1,3 +1,5 @@
+#include <mlcontext.h>
+
 //Struttura dati per il passaggio di argomenti
 struct argsThreadStruct{
   MlContext* mlc;
@@ -9,3 +11,4 @@ struct argsThreadStruct{
 };
 
 const char** ScanPorts();
+int OpenSerial(const char *fileSerial);

@@ -1,26 +1,14 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <elm.h>
 #include <sys/types.h>
 #include <limits.h>
 #include <dirent.h>
 #include <string.h>
 #include <utils.h>
-
-//Implementazione del thread per la seriale
-void* Thread_Seriale(void* args){
-  struct argsThreadStruct *argsT=(struct argsThreadStruct *)args;
-  while(waitSigCont() == 0 && argsT->comandoSeriale != EXIT_ML){
-    printf("comado seriale: %u\n",argsT->comandoSeriale);
-    switch(argsT->comandoSeriale){
-    case REQUEST_SERIAL:
-      
-      break;
-    }
-  }
-  //Attesa per la selezione della seriale
-  return NULL;
-}
+#include <unistd.h>
+#include <fcntl.h> 
+#include <termios.h>
+#include <errno.h>
 
 const char** ScanPorts(){
   //Codice per trovare tutte le seriali connesse, faccio la ricerca tramite il filesystem virtuale sys
@@ -115,4 +103,49 @@ const char** ScanPorts(){
   }
   closedir(dir_sys_usb);
   return (const char**)ports;
+}
+
+int OpenSerial(const char *fileSerial){
+  //Impostazione per il file tty
+  int serial_fd = open(fileSerial, O_RDWR | O_NOCTTY | O_SYNC);
+  int retValue=-1;
+  
+  if (serial_fd < 0) {
+      fprintf(stderr, "Failed to open serial port: %s\n", strerror(errno));
+  }else{
+    struct termios tty;
+    memset(&tty, 0, sizeof tty);
+
+    if (tcgetattr(serial_fd, &tty) != 0) {
+      fprintf(stderr, "Error from tcgetattr: %s\n", strerror(errno));
+      close(serial_fd);
+    }else{
+      cfsetospeed(&tty, B9600);
+      cfsetispeed(&tty, B9600);
+
+      // Configure settings: 8N1 mode (8 data bits, no parity, 1 stop bit)
+      tty.c_cflag &= ~PARENB; // No parity
+      tty.c_cflag &= ~CSTOPB; // One stop bit
+      tty.c_cflag &= ~CSIZE;
+      tty.c_cflag |= CS8;     // 8 data bits
+      tty.c_cflag &= ~CRTSCTS; // No hardware flow control
+      tty.c_cflag |= CREAD | CLOCAL; // Enable receiver, ignore modem control lines
+
+      tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); // Raw input
+      tty.c_iflag &= ~(IXON | IXOFF | IXANY); // No software flow control
+      tty.c_oflag &= ~OPOST; // Raw output
+
+      // Set blocking read with a 1-second timeout
+      tty.c_cc[VMIN] = 0;
+      tty.c_cc[VTIME] = 10; // 1 second timeout
+
+      if (tcsetattr(serial_fd, TCSANOW, &tty) != 0) {
+        fprintf(stderr, "Error from tcsetattr: %s\n", strerror(errno));
+        close(serial_fd);
+      }else{
+        retValue=serial_fd;
+      }
+    }
+  }
+  return retValue;
 }

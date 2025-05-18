@@ -4,6 +4,7 @@
 #define START_RENDER 4
 #define END_RENDER 5
 #define SCAN_SERIAL 6
+#define OPEN_SERIAL 7
 
 #include <equeue.h>
 #include <mlcontext.h>
