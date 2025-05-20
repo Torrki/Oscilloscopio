@@ -11,7 +11,7 @@
 #include <string.h>
 #include <errno.h>
 
-#define FPS 25.0
+#define FPS 30.0
 
 typedef GLfloat sampleTypeGL;
 
@@ -73,8 +73,8 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   gctx.osc->height=500;
   gctx.osc->hLines=7;
   gctx.osc->vLines=7;
-  gctx.osc->T_Window=5.0;
-  gctx.osc->shiftFinestra=5;
+  gctx.osc->T_Window=3.0;
+  gctx.osc->shiftFinestra=4;
   gctx.osc->dt=2e-4;
   gctx.osc->N=(unsigned)floor(gctx.osc->T_Window/gctx.osc->dt);
   gctx.argsT->nElementi=(unsigned)floor(1.0/(FPS*gctx.osc->dt));
@@ -153,7 +153,7 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
         if(bytesRead == -1){
           fprintf(stderr, "Error from read: %s\n", strerror(errno));
         }else{
-          g_print("%c\n",risposta);
+          //g_print("%c\n",risposta);
           //Leggo la frequenza di campionamento dell'Arduino
           unsigned long freqTimer=0;
           void* addrFreqTimer=(void*)&freqTimer;
@@ -260,7 +260,7 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context) {
       GLfloat tGL[nElementi];
       double t=gctx.osc->T;
       for(unsigned j=0; j<nElementi; ++j){
-        tGL[j]=-1.0+(t/gctx.osc->T_Window)*2.0;
+        tGL[j] = -1.0+(t/gctx.osc->T_Window)*2.0;
         t += gctx.osc->dt;
       }
       
@@ -415,7 +415,7 @@ static gboolean CloseRequestWindow (GtkWindow* self, gpointer user_data){
     *bufferSignals=NULL;
     
     //Arrivo al flush con l'Arduino che ha termonato e non trasmette più dati
-    tcflush(gctx.argsT->fdSeriale,TCIOFLUSH);
+    tcflush(gctx.argsT->fdSeriale,TCIFLUSH);
     close(gctx.argsT->fdSeriale);
   }
   return FALSE;

@@ -7,7 +7,6 @@ struct argsThreadStruct{
   MlContext* mlc;
   sampleType *bufferSignals;
   unsigned nElementi;
-  unsigned comandoSeriale;
   const char** porte;
   int fdSeriale;
   float gainOsc;

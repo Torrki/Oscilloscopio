@@ -5,6 +5,7 @@
 #include <utils.h>
 #include <signal.h> 
 #include <unistd.h>
+#include <errno.h>
 
 //Dichiarazione del thread che gestisce la grafica
 void* Thread_GUI(void* args);
@@ -31,11 +32,15 @@ int main(int argc, char* argv[]){
       switch(lastCommand){
       case RENDER_GL:
         //Copia del buffer per permettere di campionare anche durante il rendering
-        ssize_t readByte= read(argsT->fdSeriale,bufferCopy,sizeof(uint16_t)*argsT->nElementi);
+        ssize_t readByte=0;
+        const ssize_t bytesTotal=argsT->nElementi*sizeof(uint16_t);
+        readByte = read(argsT->fdSeriale,bufferCopy,bytesTotal);
         int nElementiLetti=readByte/sizeof(uint16_t);
-        printf("%lu\n",readByte);
+        //printf("%d\n%d\n",nElementiLetti,argsT->nElementi);
         for(int k=0; k < nElementiLetti; ++k){
           argsT->bufferSignals[k]=((sampleType)(bufferCopy[k]>>6))*argsT->gainOsc;
+          //printf("%f\n",argsT->bufferSignals[k]);
+          //argsT->bufferSignals[k]=0.5f;
         }
         argsT->nElementiLetti=nElementiLetti;
         break;
@@ -50,7 +55,6 @@ int main(int argc, char* argv[]){
         break;
       case SCAN_SERIAL:
         //Comando per la scansione delle seriali CDC disponibili
-        argsT->comandoSeriale=SCAN_SERIAL;
         //Se ho già fatto una scansione cancello il risultato
         if(argsT->porte){
           unsigned k=0;

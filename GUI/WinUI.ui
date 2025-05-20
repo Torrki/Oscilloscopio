@@ -32,10 +32,10 @@
 			      </child>
 			      <child>
 			        <object class="GtkLabel">
-			          <property name="margin-start">50</property>
+			          <property name="margin-start">30</property>
 			          <property name="label">Serial Port:</property>
 			          <layout>
-			            <property name="column">1</property>
+			            <property name="column">2</property>
 			            <property name="row">0</property>
 			          </layout>
 			        </object>
@@ -50,8 +50,108 @@
                   </object>
                 </property>
                 <layout>
-			            <property name="column">2</property>
+			            <property name="column">3</property>
 			            <property name="row">0</property>
+			          </layout>
+			        </object>
+			      </child>
+			      <child>
+			        <object class="GtkLabel">
+			          <property name="margin-start">10</property>
+			          <property name="margin-top">10</property>
+			          <property name="label">Min Value:</property>
+			          <layout>
+			            <property name="column">0</property>
+			            <property name="row">1</property>
+			          </layout>
+			        </object>
+			      </child>
+			      <child>
+			        <object class="GtkSpinButton" id="MinValue">
+			          <property name="margin-top">10</property>
+			          <property name="numeric">True</property>
+			          <property name="climb-rate">1</property>
+			          <property name="digits">0</property>
+			          <property name="adjustment">
+			            <object class="GtkAdjustment">
+			              <property name="value">0</property>
+			              <property name="lower">-5000</property>
+			              <property name="upper">5000</property>
+			              <property name="step-increment">1</property>
+			              <property name="page-increment">5</property>
+			              <property name="page-size">0</property>
+			            </object>
+			          </property>
+			          <layout>
+			            <property name="column">1</property>
+			            <property name="row">1</property>
+			          </layout>
+			        </object>
+			      </child>
+			      <child>
+			        <object class="GtkLabel">
+			          <property name="margin-start">10</property>
+			          <property name="margin-top">10</property>
+			          <property name="label">Max Value:</property>
+			          <layout>
+			            <property name="column">0</property>
+			            <property name="row">2</property>
+			          </layout>
+			        </object>
+			      </child>
+			      <child>
+			        <object class="GtkSpinButton" id="MaxValue">
+		            <property name="margin-top">10</property>
+			          <property name="numeric">True</property>
+			          <property name="climb-rate">1</property>
+			          <property name="digits">0</property>
+			          <property name="adjustment">
+			            <object class="GtkAdjustment">
+			              <property name="value">0</property>
+			              <property name="lower">-5000</property>
+			              <property name="upper">5000</property>
+			              <property name="step-increment">1</property>
+			              <property name="page-increment">5</property>
+			              <property name="page-size">0</property>
+			            </object>
+			          </property>
+			          <layout>
+			            <property name="column">1</property>
+			            <property name="row">2</property>
+			          </layout>
+			        </object>
+			      </child>
+			      <child>
+			        <object class="GtkLabel">
+			          <property name="margin-start">30</property>
+			          <property name="margin-top">30</property>
+			          <property name="label">Time Window:</property>
+			          <layout>
+			            <property name="column">0</property>
+			            <property name="row">3</property>
+			          </layout>
+			        </object>
+			      </child>
+			      <child>
+			        <object class="GtkScale" id="Window">
+			          <property name="margin-start">10</property>
+			          <property name="margin-top">30</property>
+			          <property name="digits">1</property>
+			          <property name="value-pos">GTK_POS_RIGHT</property>
+			          <property name="draw-value">True</property>
+			          <property name="adjustment">
+			            <object class="GtkAdjustment">
+			              <property name="value">0</property>
+			              <property name="lower">0</property>
+			              <property name="upper">10</property>
+			              <property name="step-increment">1</property>
+			              <property name="page-increment">5</property>
+			              <property name="page-size">0</property>
+			            </object>
+			          </property>
+			          <layout>
+			            <property name="column">1</property>
+			            <property name="row">3</property>
 			          </layout>
 			        </object>
 			      </child>
