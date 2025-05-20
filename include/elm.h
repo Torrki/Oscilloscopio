@@ -1,10 +1,9 @@
-#define REQUEST_SERIAL 1
-#define EXIT_ML 2
-#define RENDER_GL 3
-#define START_RENDER 4
-#define END_RENDER 5
-#define SCAN_SERIAL 6
-#define OPEN_SERIAL 7
+#define EXIT_ML 1
+#define RENDER_GL EXIT_ML+1
+#define START_RENDER RENDER_GL+1
+#define END_RENDER START_RENDER+1
+#define SCAN_SERIAL END_RENDER+1
+#define OPEN_SERIAL SCAN_SERIAL+1
 
 #include <equeue.h>
 #include <mlcontext.h>

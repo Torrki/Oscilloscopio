@@ -120,8 +120,8 @@ int OpenSerial(const char *fileSerial){
       fprintf(stderr, "Error from tcgetattr: %s\n", strerror(errno));
       close(serial_fd);
     }else{
-      cfsetospeed(&tty, B9600);
-      cfsetispeed(&tty, B9600);
+      cfsetospeed(&tty, B57600);
+      cfsetispeed(&tty, B57600);
 
       // Configure settings: 8N1 mode (8 data bits, no parity, 1 stop bit)
       tty.c_cflag &= ~PARENB; // No parity
