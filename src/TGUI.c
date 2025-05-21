@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <GLES3/gl32.h>
+#include <stdint.h>
 #include <elm.h>
 #include <guifh.h>
 #include <math.h>
@@ -13,7 +14,7 @@
 
 #define FPS 30.0
 
-typedef GLfloat sampleTypeGL;
+typedef GLushort sampleTypeGL;
 
 //Oggetto che rappresenta il display
 struct _DisplayOscilloscopio{
@@ -22,6 +23,7 @@ struct _DisplayOscilloscopio{
   double T_Window,dt,T;     //Dimensione finestra, intervallo di campionamento, cursore nel tempo
   unsigned N,k_camp,k;      //Cursore indice intero, elementi in totale
   unsigned shiftFinestra;   //Divisore per lo scorrimento della finestra
+  int minValue, maxValue;   //Valori minimo e massimo dei campioni
 };
 
 struct GUI_Context{
@@ -32,6 +34,7 @@ struct GUI_Context{
   uint8_t draw;
   double interval_GUI;
   GLuint bobjs[2];
+  GLuint programShader;
 }gctx;
 
 void* Thread_GUI(void* args){
@@ -67,13 +70,19 @@ static void InitApp(GtkApplication *self, gpointer user_data){
   GtkToggleButton *ButtonSE=GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "SE"));
   GtkDropDown* PortSelect=GTK_DROP_DOWN(gtk_builder_get_object(builder,"PortSelect"));
   
+  //Inizializzazione Widgets
+  GtkRange* TimeScale_R=GTK_RANGE(gtk_builder_get_object(builder,"Window"));
+  GtkSpinButton* MaxSpin=GTK_SPIN_BUTTON(gtk_builder_get_object(builder,"MaxValue"));
+  gtk_adjustment_set_value(gtk_range_get_adjustment(TimeScale_R),1.0);
+  gtk_spin_button_set_value(MaxSpin,1023.0);
+  
   //Impostazione dell'oscilloscopio
   gctx.osc=(DisplayOsc*)calloc(1,sizeof(DisplayOsc));
   gctx.osc->width=900;
   gctx.osc->height=500;
   gctx.osc->hLines=7;
   gctx.osc->vLines=7;
-  gctx.osc->T_Window=3.0;
+  gctx.osc->T_Window=10.0;
   gctx.osc->shiftFinestra=4;
   gctx.osc->dt=2e-4;
   gctx.osc->N=(unsigned)floor(gctx.osc->T_Window/gctx.osc->dt);
@@ -107,7 +116,7 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
 
   if(gtk_toggle_button_get_active(self) && gctx.draw==0){
     //Apertura del file per la comunicazione
-    GtkDropDown* PortSelect=GTK_DROP_DOWN(gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),2,0));
+    GtkDropDown* PortSelect=GTK_DROP_DOWN(gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),3,0));
     GtkStringList* PortList=GTK_STRING_LIST(gtk_drop_down_get_model(PortSelect));
     
     //Allocazione per il parametro del comando
@@ -170,9 +179,16 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
           gtk_button_set_label(GTK_BUTTON(self),"Stop");
           
           //Creo il buffer per la condivisione dei segnali e di GL
+          GtkWidget* TimeScale=gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),1,3);
+          GtkWidget* MaxSpin=gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),1,2);
+          GtkWidget* MinSpin=gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),1,1);
           gctx.osc->k=0;
           gctx.osc->T=0.0;
           gctx.osc->k_camp=0;
+          gctx.osc->T_Window=gtk_range_get_value(GTK_RANGE(TimeScale));
+          gctx.osc->N=(unsigned)floor(gctx.osc->T_Window/gctx.osc->dt);
+          gctx.osc->minValue=gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(MinSpin));
+          gctx.osc->maxValue=gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(MaxSpin));
           g_print("N: %u\nnElementi: %u\n", gctx.osc->N, gctx.argsT->nElementi);
           *bufferSignals=(sampleType*)calloc(gctx.argsT->nElementi,sizeof(sampleType));
           signalMainLoop(gctx.argsT->mlc,START_RENDER,NULL);
@@ -181,6 +197,13 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
           timer_create(CLOCK_REALTIME, NULL, &(gctx.idTimerCamp));    
           long interval_ns=(long)floor( (gctx.interval_GUI*1e9) );    
           struct itimerspec ts={.it_interval={.tv_sec=0L, .tv_nsec=interval_ns}, .it_value={.tv_sec=0L, .tv_nsec=interval_ns}};
+          
+          //Blocco tutti gli altri widget
+          GtkWidget* PortSelect=gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),3,0);
+          gtk_widget_set_sensitive(PortSelect,FALSE);
+          gtk_widget_set_sensitive(TimeScale,FALSE);
+          gtk_widget_set_sensitive(MaxSpin,FALSE);
+          gtk_widget_set_sensitive(MinSpin,FALSE);
           
           //Invio della conferma per far continuare l'Arduino
           risposta='C';
@@ -224,6 +247,16 @@ static void SEToggle(GtkToggleButton *self, gpointer user_data){
     //Arrivo al flush con l'Arduino che ha termonato e non trasmette più dati
     tcflush(gctx.argsT->fdSeriale,TCIOFLUSH);
     close(gctx.argsT->fdSeriale);
+    
+    //Sblocco i widget
+    GtkWidget* PortSelect=gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),3,0);
+    GtkWidget* TimeScale=gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),1,3);
+    GtkWidget* MaxSpin=gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),1,2);
+    GtkWidget* MinSpin=gtk_grid_get_child_at(GTK_GRID(gtk_widget_get_parent(GTK_WIDGET(self))),1,1);
+    gtk_widget_set_sensitive(PortSelect,TRUE);
+    gtk_widget_set_sensitive(TimeScale,TRUE);
+    gtk_widget_set_sensitive(MaxSpin,TRUE);
+    gtk_widget_set_sensitive(MinSpin,TRUE);
   }
 }
 
@@ -246,8 +279,8 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context) {
       //Scrorrimento della finestra del display
       if(gctx.osc->T+interval_GUI_now > gctx.osc->T_Window){
         // unsigned endElement=floor(gctx.osc->T/gctx.osc->dt);
-        unsigned off_Copy= ((gctx.osc->k*(gctx.osc->shiftFinestra-1))/gctx.osc->shiftFinestra)*sizeof(GLfloat);
-        unsigned size_Copy= (gctx.osc->k/gctx.osc->shiftFinestra)*sizeof(GLfloat);
+        unsigned off_Copy= ((gctx.osc->k*(gctx.osc->shiftFinestra-1))/gctx.osc->shiftFinestra)*sizeof(sampleTypeGL);
+        unsigned size_Copy= (gctx.osc->k/gctx.osc->shiftFinestra)*sizeof(sampleTypeGL);
         glCopyBufferSubData(GL_ARRAY_BUFFER,GL_ARRAY_BUFFER,off_Copy,0,size_Copy);
         
         //Modifica del cursore e pulizia display
@@ -264,7 +297,11 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context) {
         t += gctx.osc->dt;
       }
       
-      glBufferSubData(GL_ARRAY_BUFFER,gctx.osc->k*sizeof(GLfloat),nElementi*sizeof(GLfloat),gctx.argsT->bufferSignals);
+      //Prendo i valori di minimo e massimo dei campioni e li passo al programma
+      glUniform1f(glGetUniformLocation(gctx.programShader,"maxValue"),(float)gctx.osc->maxValue);
+      glUniform1f(glGetUniformLocation(gctx.programShader,"minValue"),(float)gctx.osc->minValue);
+      
+      glBufferSubData(GL_ARRAY_BUFFER,gctx.osc->k*sizeof(sampleTypeGL),nElementi*sizeof(sampleTypeGL),gctx.argsT->bufferSignals);
       glBindBuffer(GL_ARRAY_BUFFER,1);
       glBufferSubData(GL_ARRAY_BUFFER,gctx.osc->k*sizeof(GLfloat),nElementi*sizeof(GLfloat),&tGL);
       glBindBuffer(GL_ARRAY_BUFFER,2);
@@ -301,9 +338,13 @@ static void on_realize (GtkGLArea *area){
   "#version 320 es\n"
   "layout (location = 0) in float t;\n"
   "layout (location = 1) in float signal;\n"
+  "uniform float minValue;\n"
+  "uniform float maxValue;\n"
   "void main()\n"
   "{\n"
-  "   gl_Position = vec4(t, signal, 0.0, 1.0);\n"
+  "   float deltaValue=maxValue-minValue;\n"
+  "   float signal_float=-1.0+((signal-minValue)/deltaValue)*2.0;\n"
+  "   gl_Position = vec4(t, signal_float, 0.0, 1.0);\n"
   "   gl_PointSize = 2.0;\n"
   "}\n";
   glShaderSource(vertexShader,1,&vertexShaderSource,NULL);
@@ -371,7 +412,7 @@ static void on_realize (GtkGLArea *area){
   glReleaseShaderCompiler();
   glDeleteShader(vertexShader);
   glDeleteShader(fragmentShader);
-  glDeleteProgram(prog);
+  //glDeleteProgram(prog);
   
   //Creazione dei buffer degli shaders, tempo e segnale
   glGenBuffers(2,gctx.bobjs);
@@ -383,10 +424,11 @@ static void on_realize (GtkGLArea *area){
   
   glBindBuffer(GL_ARRAY_BUFFER,gctx.bobjs[1]);
   glBufferData(GL_ARRAY_BUFFER,gctx.osc->N*sizeof(sampleTypeGL),NULL,GL_DYNAMIC_DRAW);
-  glVertexAttribPointer(1,1,GL_FLOAT,GL_FALSE,0,NULL);
+  glVertexAttribPointer(1,1,GL_UNSIGNED_SHORT,GL_FALSE,0,NULL);
   glEnableVertexAttribArray(1);
   
   glClearColor(0.0, 0.0, 0.0, 1.0);
+  gctx.programShader=prog;
 }
 
 static gboolean CloseRequestWindow (GtkWindow* self, gpointer user_data){

@@ -23,7 +23,7 @@ int main(int argc, char* argv[]){
   
   //Ciclo di elaborazione degli eventi, termino con 2
   uint8_t lastCommand=0;
-  uint16_t *bufferCopy=NULL;
+  sampleType *bufferCopy=NULL;
   
   while(lastCommand != EXIT_ML){
     if(GetNSignals(MLC)){
@@ -33,12 +33,12 @@ int main(int argc, char* argv[]){
       case RENDER_GL:
         //Copia del buffer per permettere di campionare anche durante il rendering
         ssize_t readByte=0;
-        const ssize_t bytesTotal=argsT->nElementi*sizeof(uint16_t);
+        const ssize_t bytesTotal=argsT->nElementi*sizeof(sampleType);
         readByte = read(argsT->fdSeriale,bufferCopy,bytesTotal);
-        int nElementiLetti=readByte/sizeof(uint16_t);
+        int nElementiLetti=readByte/sizeof(sampleType);
         //printf("%d\n%d\n",nElementiLetti,argsT->nElementi);
         for(int k=0; k < nElementiLetti; ++k){
-          argsT->bufferSignals[k]=((sampleType)(bufferCopy[k]>>6))*argsT->gainOsc;
+          argsT->bufferSignals[k]=(sampleType)(bufferCopy[k]>>6);
           //printf("%f\n",argsT->bufferSignals[k]);
           //argsT->bufferSignals[k]=0.5f;
         }
@@ -46,7 +46,7 @@ int main(int argc, char* argv[]){
         break;
       case START_RENDER:
         //Allocazione della memoria per il campionamento
-        bufferCopy=(uint16_t*)calloc(argsT->nElementi,sizeof(uint16_t));
+        bufferCopy=(sampleType*)calloc(argsT->nElementi,sizeof(sampleType));
         break;
       case END_RENDER:
         //Deallocazione della memoria del campionamento

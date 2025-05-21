@@ -1,6 +1,6 @@
 #include <mlcontext.h>
 
-typedef float sampleType;
+typedef uint16_t sampleType;
 
 //Struttura dati per il passaggio di argomenti
 struct argsThreadStruct{
